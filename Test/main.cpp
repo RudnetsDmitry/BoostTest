@@ -5,16 +5,69 @@
 #include <windows.h>
 #include <typeinfo>
 #include <ctime>
+#include <limits>
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/scoped_array.hpp>
 #include <boost/shared_ptr.hpp>
 #include <boost/make_shared.hpp>
+#include <boost/chrono.hpp>
+#include <boost/chrono/duration.hpp>
+#include <boost/optional.hpp>
+
+//#define BOOST_SP_USE_QUICK_ALLOCATOR
+
+namespace bcr = boost::chrono;
+
+#ifdef max
+#undef max
+#endif
 
 template <class T, size_t N> size_t array_size(T(&)[N]) { return N; }
 
 namespace boost_test
 {
+	class Timer
+	{
+		boost::optional<bcr::system_clock::time_point> m_startTime;
+		boost::optional<bcr::system_clock::duration> m_timeDuration; ///tick is 100 nanoseconds
+	public:
+		void Start()
+		{
+			m_startTime.reset(bcr::system_clock::now());
+		}
+		void Stop()
+		{
+			auto curTime = bcr::system_clock::now();
+			assert(m_startTime);
+			
+			if (m_startTime)
+				m_timeDuration.reset(curTime - *m_startTime);
+			else
+			{
+				assert(false);
+				m_timeDuration.reset();
+			}
+		}
+
+		double DurationInInSec() const
+		{
+			auto res = DurationInInMicroSec();
+			return res > 0 ? res / 1000000.0 : res;
+		}
+
+		__int64 DurationInInMicroSec() const
+		{
+			if (!m_timeDuration)
+			{
+				assert(false);
+				return -1;
+			}
+
+			bcr::microseconds usec = bcr::duration_cast<bcr::microseconds>(*m_timeDuration);
+			return (usec <= bcr::microseconds(0)) ? 0 : usec.count();
+		}
+	};
 	void TestScopedPtr()
 	{
 		std::cout << "TestScopedPtr" << std::endl;
@@ -80,13 +133,24 @@ namespace boost_test
 
 	void TestBoostQuickAllocator()
 	{
-		std::cout << "TestBoostQuickAllocator";
+		std::cout << "TestBoostQuickAllocator" << std::endl;
 		boost::shared_ptr<int> p;
-		std::time_t then = std::time(nullptr);
-		for (int i = 0; i < 1000000; ++i)
-			p.reset(new int{ i });
-		std::time_t now = std::time(nullptr);
-		std::cout << now - then << '\n';
+		while (true)
+		{
+			Timer timer;
+			timer.Start();
+			for (int i = 0; i < 10000000; ++i)
+				p.reset(new int{ i });
+			timer.Stop();
+			std::cout << "time = " << timer.DurationInInMicroSec() << '\n';
+
+			std::cout << "To break press b, else any char" << std::endl;
+			char ch;
+			std::cin >> ch;
+			if (ch == 'b')
+				break;
+		}
+		
 	}
 }
 
@@ -105,9 +169,8 @@ int main()
 {
 	TestBoost();
 
+	std::cout << "Press any key to Exit" << std::endl;
 	char ch;
 	std::cin >> ch;
 	return 0;
 }
-
-
