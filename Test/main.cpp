@@ -6,6 +6,8 @@
 #include <typeinfo>
 #include <ctime>
 #include <limits>
+// for intrusive_ptr
+#include <atlbase.h>
 
 #include <boost/scoped_ptr.hpp>
 #include <boost/scoped_array.hpp>
@@ -14,6 +16,7 @@
 #include <boost/chrono.hpp>
 #include <boost/chrono/duration.hpp>
 #include <boost/optional.hpp>
+#include <boost/intrusive_ptr.hpp>
 
 //#define BOOST_SP_USE_QUICK_ALLOCATOR
 
@@ -24,6 +27,26 @@ namespace bcr = boost::chrono;
 #endif
 
 template <class T, size_t N> size_t array_size(T(&)[N]) { return N; }
+
+struct DummyAddRef
+{
+	void AddRef(){}
+	void Release(){}
+};
+
+// for intrusive_ptr
+void intrusive_ptr_add_ref(IDispatch *p) { p->AddRef(); }
+void intrusive_ptr_release(IDispatch *p) { p->Release(); }
+
+void intrusive_ptr_add_ref(DummyAddRef *p) { p->AddRef(); }
+void intrusive_ptr_release(DummyAddRef *p) { p->Release(); }
+
+class CoInitializeGuard
+{
+public:
+	CoInitializeGuard(){ CoInitialize(0); }
+	~CoInitializeGuard(){ CoUninitialize(); }
+};
 
 namespace boost_test
 {
@@ -131,26 +154,23 @@ namespace boost_test
 		std::cout << typeid(p2).name() << std::endl;
 	}
 
-	void TestBoostQuickAllocator()
+	void TestIntrusivePtr()
 	{
-		std::cout << "TestBoostQuickAllocator" << std::endl;
-		boost::shared_ptr<int> p;
-		while (true)
-		{
-			Timer timer;
-			timer.Start();
-			for (int i = 0; i < 10000000; ++i)
-				p.reset(new int{ i });
-			timer.Stop();
-			std::cout << "time = " << timer.DurationInInMicroSec() << '\n';
+		std::cout << "TestIntrusivePtr" << std::endl;
 
-			std::cout << "To break press b, else any char" << std::endl;
-			char ch;
-			std::cin >> ch;
-			if (ch == 'b')
-				break;
-		}
-		
+		CoInitializeGuard initialGuard;
+		UNREFERENCED_PARAMETER(initialGuard);
+
+		CLSID clsid;
+		CLSIDFromProgID(CComBSTR{ "Scripting.FileSystemObject" }, &clsid);
+		void *p;
+		CoCreateInstance(clsid, 0, CLSCTX_INPROC_SERVER, __uuidof(IDispatch), &p);
+		boost::intrusive_ptr<IDispatch> disp{ static_cast<IDispatch*>(p), false };
+		CComDispatchDriver dd{ disp.get() };
+		CComVariant arg{ "C:\\Windows" };
+		CComVariant ret{ false };
+		dd.Invoke1(CComBSTR{ "FolderExists" }, &arg, &ret);
+		std::cout << std::boolalpha << (ret.boolVal != 0) << std::endl;
 	}
 }
 
@@ -162,7 +182,7 @@ void TestBoost()
 	TestScopedArray();
 	TestSharedPtr();
 	TestMakeSharedPtr();
-	TestBoostQuickAllocator();
+	TestIntrusivePtr();
 }
 
 int main()
